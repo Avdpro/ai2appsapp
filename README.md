@@ -1,2 +1,2 @@
-# ai2appsapp
-Electron project for native-app client
+# AI2Apps electron app client
+
