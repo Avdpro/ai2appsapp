@@ -66,7 +66,9 @@ function showTip(win, x, y, tip, tipW,timeout=5000) {
   `)}`);
 	
 	currentTip.once('ready-to-show', () => {
-		currentTip.showInactive(); // 不抢焦点
+		if(currentTip && currentTip===thisTip) {
+			currentTip.showInactive(); // 不抢焦点
+		}
 	});
 	
 	currentTip.on('closed', () => {
