@@ -56,17 +56,18 @@ eBrowser=EBrowser.prototype={};
 		}
 	};
 	//-----------------------------------------------------------------------
-	eBrowser.newTab=function(idx){
+	eBrowser.newTab=function(idx,opts){
 		let tab;
-		tab=this.addTab(idx||-1);
+		tab=this.addTab(idx||-1,opts);
 		window.tabApi.newTab(null,tab.eTabIdx);
 	};
 	
 	//-----------------------------------------------------------------------
-	eBrowser.addTab=function(idx=-1) {
-		let tabs,tab;
+	eBrowser.addTab=function(idx=-1,opts) {
+		let tabs,tab,fixed;
+		fixed=(opts===true)||(opts && opts.fixed);
 		tabs=this.tabs;
-		tab=makeTabButton(this,200,30);
+		tab=makeTabButton(this,200,30,fixed);
 		if(idx>=0) {
 			let nextTab;
 			tabs.splice(idx,0,tab);
@@ -114,7 +115,8 @@ eBrowser=EBrowser.prototype={};
 		tab.setState('focus');
 		this.focusedTab=tab;
 		navi = this.navi;
-		navi.setUrl(tab.eTabUrl||"");
+		console.log(`Will active tab: ${tab.eTabUrl}, fixed:${tab.eFixed}`);
+		navi.setUrl(tab.eTabUrl||"",tab.eFixed);
 		//TODO: Show focus frame:
 		window.tabApi.focusTab(tab.eTabIdx);
 	};
@@ -130,7 +132,8 @@ eBrowser=EBrowser.prototype={};
 		tab.setPageInfo(title,icon,url);
 		if(tab===this.focusedTab) {
 			navi = this.navi;
-			navi.setUrl(url);
+			console.log(`eBrowser.pageInfo() will active tab: ${tab.eTabUrl}, fixed:${tab.eFixed}`);
+			navi.setUrl(url,tab.eFixed);
 		}
 	};
 	
@@ -202,16 +205,14 @@ eBrowser=EBrowser.prototype={};
 	eBrowser.updateApp=function(){
 		window.tabApi.updateApp();
 	};
-	
-	
 }
 
 browser=new EBrowser();
-window.tabApi.onNewTab((url)=>{
+window.tabApi.onNewTab((url,fixed)=>{
 	let tab;
-	console.log("Will add a new tab!");
-	tab = browser.addTab(-1);
-	window.tabApi.newTab(url,tab.eTabIdx);
+	console.log("Will add a new tab! fixe: "+fixed);
+	tab = browser.addTab(-1,fixed);
+	window.tabApi.newTab(url,tab.eTabIdx,fixed);
 });
 
 window.tabApi.onPageInfo((index,url,title,icon)=>{

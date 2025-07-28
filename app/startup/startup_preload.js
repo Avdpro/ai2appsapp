@@ -15,4 +15,9 @@ contextBridge.exposeInMainWorld('startupApi', {
 	onStartupState: (callback) => ipcRenderer.on('startup-state', (_, log) => callback(log)),
 	//Startup=>Page: Startup日志
 	onStartupLog: (callback) => ipcRenderer.on('startup-log', (_, log) => callback(log)),
+	
+	//Page=>Browser: 用默认浏览器打开URL/打开指定的App。
+	shellExec:(url)=>{
+		ipcRenderer.send('shell-exec', url);
+	},
 });

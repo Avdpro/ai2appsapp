@@ -17,7 +17,7 @@ function makeAddressBar(placeholder = "Enter website URL",onEnter) {
     margin-right:5px;
     margin-left:5px;
 	box-sizing: border-box;
-  `;
+	`;
 	
 	const input = document.createElement("input");
 	input.type = "text";
@@ -30,7 +30,7 @@ function makeAddressBar(placeholder = "Enter website URL",onEnter) {
     background: transparent;
     padding: 0;
     margin: 0;
-  `;
+    `;
 	input.addEventListener("focus", () => input.select());
 	input.addEventListener("keydown", (e) => {
 		if (e.isComposing) return; // 忽略输入法中按键
@@ -49,8 +49,15 @@ function makeAddressBar(placeholder = "Enter website URL",onEnter) {
 		wrapper.style['border']='2px solid #f0f2f4';
 	});
 	
-	wrapper.setUrl=function(url){
+	wrapper.setUrl=function(url,fixed){
 		input.value=url;
+		if(fixed){
+			input.disabled=true;
+			input.style.opacity = '0.5';
+		}else{
+			input.disabled=false;
+			input.style.opacity = '1';
+		}
 	}
 	wrapper.appendChild(input);
 	return wrapper;
@@ -84,6 +91,9 @@ function makeNaviBar (browser) {
 	navi.eBtnReload=btnReload;
 	
 	let editAddr=makeAddressBar("Enter page URL",(url)=>{
+		if(url.indexOf("://")<0){
+			url="https://"+url;
+		}
 		browser.gotoUrl(url);
 	});
 	navi.appendChild(editAddr);
@@ -133,8 +143,8 @@ function makeNaviBar (browser) {
 	navi.appendChild(btnUpdate);
 	navi.eBtnUpdate=btnUpdate;
 
-	navi.setUrl=function(url){
-		editAddr.setUrl(url);
+	navi.setUrl=function(url,fixed){
+		editAddr.setUrl(url,fixed);
 	}
 	window.tabApi.getVersion().then((version)=>{
 		navi.setVersion(version);

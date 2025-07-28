@@ -1,4 +1,4 @@
-import{ app, BrowserWindow,nativeImage,Tray,screen,Menu,ipcMain } from "electron";
+import{ app, BrowserWindow,nativeImage,Tray,screen,Menu,ipcMain,shell } from "electron";
 import { spawn } from 'child_process';
 import { fileURLToPath } from "url";
 import pathLib from "path";
@@ -49,14 +49,14 @@ const template = [
 				label: 'New dashboard window',
 				accelerator: 'CommandOrControl+N',
 				click: () => {
-					createWindow(true); // 创建新窗口
+					createWindow(true,true); // 创建新窗口
 				}
 			},
 			{
 				label: 'New empty window',
 				accelerator: 'CommandOrControl+E',
 				click: () => {
-					createWindow(false); // 创建新窗口
+					createWindow(false,false); // 创建新窗口
 				}
 			},
 			{ type: 'separator' },
@@ -225,12 +225,21 @@ async function writeJson(filePath, data) {
 }
 
 //---------------------------------------------------------------------------
-function createWindow(openHome=true) {
-	let win=new EBrowserWindow(homepageUrl,()=>{
+function createWindow(openHome=true,fixHome=true) {
+	let win=new EBrowserWindow(openHome?homepageUrl:"_blank",()=>{
 		setTimeout(()=>{
-			startUp.close();
+			let sw;
+			sw=startUp;
+			if(sw) {
+				startUp=null;
+				try {
+					sw.close();
+				}catch(err){
+					//Do nothing.
+				}
+			}
 		},30000);
-	});
+	},{home:{fixed:fixHome}});
 }
 
 //---------------------------------------------------------------------------
@@ -473,6 +482,16 @@ function startServerAndThenWindow() {
 			console.log(`frpc exited with code ${code}`);
 			frpcRuntime=null;
 		});
+	});
+	
+	//---------------------------------------------------------------------------
+	ipcMain.handle('shell-exec', async(event,url) => {
+		try {
+			await shell.openExternal(url);
+		}catch(err){
+			console.log("Shell-Exec error:");
+			console.error(err);
+		}
 	});
 }
 

@@ -8,15 +8,26 @@ const __dirname = pathLib.dirname(__filename);
 let EBrowserWindow,eBrowserWindow;
 let closedBugFix=false;
 let closedBugTag=null;
+
+async function urlToDataURL(url) {
+	const res = await fetch(url);
+	if (!res.ok) throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+	
+	const buffer = await res.arrayBuffer();
+	const contentType = res.headers.get('content-type') || 'application/octet-stream';
+	const base64 = Buffer.from(buffer).toString('base64');
+	return `data:${contentType};base64,${base64}`;
+}
 //***************************************************************************
 //EBrowserWindow
 //***************************************************************************
 {
-	EBrowserWindow=function(startUrl,callback){
+	EBrowserWindow=function(startUrl,callback,opts){
 		let win,views;
 		const { width:screenWidth, height:screenHeight } = screen.getPrimaryDisplay().workAreaSize;
 		let width=parseInt(screenWidth*0.8);
 		let height=parseInt(screenHeight*0.8);
+		opts=opts||{};
 		
 		this.startCallback=callback;
 		width=width<1200?1200:width;
@@ -53,7 +64,7 @@ let closedBugTag=null;
 				return;
 			}
 			if(startUrl){
-				this.openPage(null,startUrl);
+				this.openPage(null,startUrl,opts.home||{});
 			}
 			if(this.startCallback){
 				this.startCallback();
@@ -102,7 +113,7 @@ let closedBugTag=null;
 		});
 
 		//IPC：前端网页里的Tab创建好了：
-		ipcMain.on('new-tab', async (event, url, index) => {
+		ipcMain.on('new-tab', async (event, url, index,fixed) => {
 			const wc=event.sender;
 			if(wc!==win.webContents)
 				return;
@@ -120,6 +131,7 @@ let closedBugTag=null;
 			win.webContents.send('focus-tab', index);
 
 			view.webContents.myPageView=view;
+			view.eFixed=!!fixed;
 			//Config browserView:
 			view.webContents.on('did-finish-load', async () => {
 				//获得网页的图标和URL，通知前端更新Tab内容
@@ -128,35 +140,26 @@ let closedBugTag=null;
 				title=view.webContents.getTitle();
 				icon=await view.webContents.executeJavaScript(`
   					(async () => {
-	  					async function urlToDataURL(url) {
-							const response = await fetch(url);
-							const blob = await response.blob();
-							return await new Promise((resolve, reject) => {
-								const reader = new FileReader();
-								reader.onloadend = () => resolve(reader.result);
-								reader.onerror = reject;
-								reader.readAsDataURL(blob);
-							});
-						}
 						
 						const rels = ['icon', 'shortcut icon', 'apple-touch-icon'];
 						for (const rel of rels) {
 							const link = document.querySelector(\`link[rel="\${rel}"]\`);
-							if (link) return await urlToDataURL(link.href);
+							if (link){
+								return link.href;
+							}
 						}
 						return null;
 					})()`);
+				if(icon) {
+					try {
+						icon = await urlToDataURL(icon);
+					}catch(err){
+						icon=null;
+					}
+				}
 				win.webContents.send('page-info', {index:view.eTabIdx,url,title,icon});
 				await view.webContents.executeJavaScript(`window.titleWatcher.traceTitleChange();`);
 			});
-			
-			//这个不好使
-			/*
-			view.webContents.on('new-window', (event, url) => {
-				event.preventDefault();
-				console.log('尝试打开新窗口: ', url);
-				this.openPage(null,url);
-			});*/
 			
 			//这个好使
 			view.webContents.setWindowOpenHandler(({ url, features }) => {
@@ -350,13 +353,13 @@ let closedBugTag=null;
 	};
 	
 	//-----------------------------------------------------------------------
-	eBrowserWindow.openPage=function(view,url){
+	eBrowserWindow.openPage=function(view,url,opts){
 		if(view){
 			if(url) {
 				view.webContents.loadURL(url);
 			}
 		}else{//Open in new tab:
-			this.window.webContents.send('new-tab', url);
+			this.window.webContents.send('new-tab', url,opts.fixed);
 		}
 	};
 	
@@ -391,6 +394,9 @@ let closedBugTag=null;
 		const curView= win.getBrowserView();
 		let nextView=null;
 		if(!view){
+			return;
+		}
+		if(view.eFixed){
 			return;
 		}
 		

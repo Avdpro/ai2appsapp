@@ -21,10 +21,10 @@ contextBridge.exposeInMainWorld('tabApi', {
 	showTip: (x,y,tip,tipW,timeout) => ipcRenderer.send('show-tip',x,y,tip,tipW,timeout),
 
 	//Browser->Page: 打开新tab
-	onNewTab: (callback) => ipcRenderer.on('new-tab', (_, url) => callback(url)),
+	onNewTab: (callback) => ipcRenderer.on('new-tab', (_, url,fixed) => callback(url,fixed)),
 	
 	//Page=>Browser: 新tab已创建
-	newTab: (url,index) => ipcRenderer.send('new-tab', url, index),
+	newTab: (url,index,fixed) => ipcRenderer.send('new-tab', url, index,fixed),
 	
 	//Page=>Browser: 当前tab已改变
 	focusTab: (index) => ipcRenderer.send('focus-tab', index),
@@ -78,6 +78,11 @@ contextBridge.exposeInMainWorld('tabApi', {
 	shadowDomain:(vo)=>{
 		console.log("Will config shadowDomain!");
 		ipcRenderer.send('shadow-domain', vo);
+	},
+	
+	//Page=>Browser: 用默认浏览器打开URL/打开指定的App。
+	shellExec:(url)=>{
+		ipcRenderer.send('shell-exec', url);
 	},
 });
 

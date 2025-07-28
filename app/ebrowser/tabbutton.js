@@ -2,7 +2,7 @@ import {makeButton} from "./button.js";
 
 let dragIdx=-1;
 
-function makeTabButton(browser,width,height){
+function makeTabButton(browser,width,height,fixed){
 	const tab = document.createElement('div');
 	tab.orgHeight=height;
 	tab.style.position = 'relative';
@@ -119,15 +119,31 @@ function makeTabButton(browser,width,height){
 	tab.appendChild(gap);
 	tab.eGap=gap;
 	
-	const btn=makeButton({
-		width:20,height:20,imageUrl:"close.svg",tipText:"Close tab",padding:2,bgColor:"#303030",
-		onClick:()=>{
-			browser.tryCloseTab(tab);
-		}
-	});
-	btn.style.zIndex="2";
-	tab.appendChild(btn);
-	tab.eCloseBtn=btn;
+	tab.eFixed=!!fixed;
+	
+	if(!fixed) {
+		const btn = makeButton({
+			width: 20, height: 20, imageUrl: "close.svg", tipText: "Close tab", padding: 2, bgColor: "#303030",
+			onClick: () => {
+				browser.tryCloseTab(tab);
+			}
+		});
+		btn.style.zIndex = "2";
+		tab.appendChild(btn);
+		tab.eCloseBtn = btn;
+	}else{
+		const img = document.createElement('img');
+		img.src = "lock.svg";
+		img.style.position = 'relative';
+		img.style.width = '20px';
+		img.style.height = '20px';
+		img.style.marginRight = '5px';
+		img.style.opacity="0.5";
+		img.draggable=false;
+		//img.style.zIndex="2";
+		tab.appendChild(img);
+		tab.ePing=img;
+	}
 	
 	let currentState = 'up';
 	let isMouseDown = false;
