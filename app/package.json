@@ -1,6 +1,6 @@
 {
   "name": "ai2apps",
-  "version": "0.1.31",
+  "version": "0.1.39",
   "description": "AI2Apps client for desktop",
   "main": "main.mjs",
   "scripts": {
