@@ -557,13 +557,11 @@ startupWindow.startApp=async function(){
 	
 	//Update .env file in server folder by config.json:
 	this.setStartupState("Reading local config...");
-	let configJson=this.configJson;
-	if(configJson){
-		if(configJson.env){
-			serverPort=configJson.env["PORT"]||serverPort;
-			await updateEnvFile(path.join(this.serverDir,".env"),configJson.env);
-		}
-	}
+	let configJson=this.configJson||{env:{}};
+	serverPort=configJson.env["PORT"]||serverPort;
+	//Set web-drive app path:
+	configJson.env["WEBDRIVE_APP"]=path.join(this.bundleDir,"Acefox.app");
+	await updateEnvFile(path.join(this.serverDir,".env"),configJson.env);
 
 	this.setStartupState("Checking local server...");
 	//Check if server is already running, mostly for debug
