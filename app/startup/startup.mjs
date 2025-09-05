@@ -517,7 +517,7 @@ startupWindow.startApp=async function(){
 				
 				this.setStartupState("Restore your files...");
 				await removeDirOrFile(path.join(this.serverDir,"filehub"));
-				fs.rename(path.join(this.serverDir,"filehub"), path.join(this.userDataDir,"filehub"), (err) => {
+				fs.rename(path.join(this.userDataDir,"filehub"), path.join(this.serverDir,"filehub"), (err) => {
 					if (err) return console.error('Failed to move:', err);
 					console.log('Directory moved successfully');
 				});
@@ -528,6 +528,10 @@ startupWindow.startApp=async function(){
 					if (err) return console.error('Failed to move:', err);
 					console.log('Directory moved successfully');
 				});
+
+				//Ensure user-data dirs:
+				ensureDirSync(path.join(this.serverDir,"filehub"));
+				ensureDirSync(path.join(this.serverDir,"rpa_data_dir"));
 				
 				//Make frpc executable:
 				{
