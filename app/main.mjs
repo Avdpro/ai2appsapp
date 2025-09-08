@@ -227,18 +227,22 @@ async function writeJson(filePath, data) {
 //---------------------------------------------------------------------------
 function createWindow(openHome=true,fixHome=true) {
 	let win=new EBrowserWindow(openHome?homepageUrl:"_blank",()=>{
-		setTimeout(()=>{
-			let sw;
-			sw=startUp;
-			if(sw) {
-				startUp=null;
-				try {
-					sw.close();
-				}catch(err){
-					//Do nothing.
+		//Append startup into win:
+		if(startUp) {
+			startUp.window.setParentWindow(win.window);
+			setTimeout(() => {
+				let sw;
+				sw = startUp;
+				if (sw) {
+					startUp = null;
+					try {
+						sw.close();
+					} catch (err) {
+						//Do nothing.
+					}
 				}
-			}
-		},30000);
+			}, 30000);
+		}
 	},{home:{fixed:fixHome}});
 }
 
@@ -409,7 +413,16 @@ function startServerAndThenWindow() {
 			serverProcess.kill();
 		}
 	});
-
+	
+	//---------------------------------------------------------------------------
+	ipcMain.on('dashboard-ready', (event) => {
+		console.log("Dashboard ready!");
+		if(startUp){
+			startUp.close();
+		}
+	});
+	
+	
 	//---------------------------------------------------------------------------
 	ipcMain.handle('check-update', () => {
 		if(updateAvailable){

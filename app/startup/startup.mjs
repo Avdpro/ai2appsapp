@@ -1,12 +1,12 @@
-import{ app, BrowserWindow,BrowserView,ipcMain,screen,Menu,dialog } from "electron";
+import{ app, BrowserWindow,BrowserView,ipcMain,screen,Menu,dialog,clipboard } from "electron";
 import pathLib from 'path'
 import os from "os";
 import { exec, spawn } from 'child_process';
 import fs from 'fs';
 import path from'path';
 import { fileURLToPath } from 'url'
-import decompress from 'decompress';
 import yauzl from 'yauzl';
+import {checkNetFast} from './check_network.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = pathLib.dirname(__filename);
@@ -15,6 +15,8 @@ let serverPort=3015;
 let isInPackage=false;
 let baseDir="";
 let fsp=fs.promises;
+
+let setStartupState=null;
 
 
 const NVM_DIR = path.join(process.env.HOME, '.nvm');
@@ -221,7 +223,6 @@ async function installNode(userDataDir,v,install=true){
 	}
 	try {
 		let result=await runBashScript(shellScript);
-		
 		nodePath = result.trimEnd().split('\n').at(-1);
 		fs.writeFileSync(nodePathCache, nodePath);
 	}catch(err){
@@ -317,6 +318,7 @@ let StartupWindow,startupWindow;
 StartupWindow=function(callback){
 	let win;
 	
+	setStartupState=this.setStartupState.bind(this);
 	this.startupCallback=callback;
 	isInPackage=app.isPackaged||true;
 	if(app.isPackaged){
@@ -342,7 +344,8 @@ StartupWindow=function(callback){
 		width: 600,
 		height: 400,
 		frame: false, // 移除原生标题栏
-		alwaysOnTop: true,
+		//alwaysOnTop: true,
+		modal: true,
 		webPreferences: {
 			preload: pathLib.join(__dirname, 'startup_preload.js'),
 		}
@@ -359,12 +362,211 @@ StartupWindow=function(callback){
 		this.startApp();
 	});
 	
+	/*
 	ipcMain.on('dashboard-ready', (event) => {
 		console.log("Dashboard ready!");
 		this.close();
-	});
+	});*/
 };
 startupWindow=StartupWindow.prototype={};
+
+//***************************************************************************
+//启动/准备过程
+//***************************************************************************
+const LABELS = {
+	xcode_clt: "Xcode Command Line Tools",
+	brew: "Homebrew",
+	git: "git",
+	conda: "conda",
+	coreutils: "coreutils",
+	timeout: "timeout",
+	nvm: "nvm",
+	node22: "Node.js 22 (via nvm)"
+};
+
+//---------------------------------------------------------------------------
+function formatFixTips(item) {
+	const lines = [];
+	if (item.note) lines.push(`# 说明：${item.note}`);
+	if (item.fix?.length) {
+		lines.push("# 手动安装步骤（逐条执行）：");
+		for (const cmd of item.fix) {
+			lines.push(typeof cmd === "string" ? cmd : String(cmd));
+		}
+	} else {
+		lines.push("(无可用的手动安装指引。)");
+	}
+	return lines.join("\n");
+}
+
+//---------------------------------------------------------------------------
+async function askPerItem(item) {
+	let detailLines;
+	const label = item.label || LABELS[item.key] || item.key;
+	if(item.fix) {
+		detailLines = [
+			`缺失项：${label}`,
+			item.version ? `已检测到版本信息：${item.version}` : "",
+			"",
+			"手动安装参考命令（已复制到剪贴板）：",
+			...(item.fix || [])
+		].filter(Boolean);
+		// 把手动命令复制到剪贴板，方便用户开终端粘贴
+		const toCopy = formatFixTips(item);
+		clipboard.writeText(toCopy);
+	}else if(item.termFix){
+		detailLines = [
+			`缺失项：${label}`,
+			item.version ? `已检测到版本信息：${item.version}` : "",
+			"",
+			"需要在终端命令行里执行安装脚本：",
+			...(item.termFix || [])
+		].filter(Boolean);
+	}
+	
+	
+	const { response } = await dialog.showMessageBox({
+		type: "warning",
+		buttons: item.termFix?["使用终端命令行安装", "退出向导"]:["自动安装", "手动安装", "退出向导"],
+		cancelId: item.termFix?1:2,
+		defaultId: 0,
+		noLink: true,
+		title: "环境缺失项",
+		message: `检测到缺失：${label}`,
+		detail: detailLines.join("\n")
+	});
+	
+	return response; // 0=自动安装, 1=手动安装, 2=退出
+}
+
+//---------------------------------------------------------------------------
+async function showManualHelpAndWait(item) {
+	const label = item.label || LABELS[item.key] || item.key;
+	const tips = formatFixTips(item);
+	
+	// 再次复制，避免用户没注意到
+	clipboard.writeText(tips);
+	
+	await dialog.showMessageBox({
+		type: "info",
+		buttons: ["我已手动完成，继续", "取消"],
+		cancelId: 1,
+		defaultId: 0,
+		noLink: true,
+		title: `手动安装：${label}`,
+		message: `请按以下步骤在终端手动安装并配置：`,
+		detail: tips
+	});
+}
+
+//---------------------------------------------------------------------------
+async function runDepsWizard(checkDeps,installDeps,win) {
+	let installed=false;
+	// 外层循环：直到没有缺失项，或用户退出
+	while (true) {
+		let vo,vo2,vo3;
+		if(!vo) {
+			setStartupState("Checking environment...");
+			vo = await checkDeps();
+		}
+		if (vo.ok) {
+			if(installed) {
+				await dialog.showMessageBox({
+					type: "info",
+					buttons: ["好的"],
+					title: "环境检查",
+					message: "所有必需依赖已就绪 ✅"
+				});
+			}
+			return vo;
+		}
+		
+		// 取第一项缺失
+		const missing = vo.items.filter(i => !i.ok);
+		if (missing.length === 0) return vo; // 理论不会发生
+		const item = missing[0];
+		
+		// 询问该项的处理方式
+		setStartupState(`Asking install dependence: ${item.key}...`);
+		const choice = await askPerItem(item);
+		if ((item.fix && choice === 2) || (item.termFix && choice === 1)){
+			// 退出向导
+			await dialog.showMessageBox({
+				type: "none",
+				buttons: ["关闭"],
+				title: "已退出环境引导",
+				message: "你可以稍后在设置中再次运行环境检查。"
+			});
+			return null;
+		}else if (item.fix && choice === 1) {
+			// 手动安装流程
+			setStartupState(`Wait use install: ${item.key}...`);
+			await showManualHelpAndWait(item);
+			
+			// 用户点击“继续”后，重新检测当前这一项
+			vo2 = await checkDeps();
+			const stillMissing = vo2.items.find(i => i.key === item.key && !i.ok);
+			if (stillMissing) {
+				// 还没装好，提醒一下，继续下一轮（依然会从第一缺失项开始）
+				await dialog.showMessageBox({
+					type: "warning",
+					buttons: ["继续"],
+					title: "仍未检测到已安装",
+					message: `${LABELS[item.key] || item.key} 似乎还未安装成功，请重试或选择自动安装。`
+				});
+			}
+			installed=true;
+			// 回到 while 顶部，继续循环
+			continue;
+		}
+		
+		// 自动安装（仅这一项）
+		try {
+			setStartupState(`Installing: ${item.key}...`);
+			await installDeps([item.key], {
+				modifyRc: true,    // 默认帮助写入 nvm/conda PATH、nvm 初始化
+				allowSudo: true,   // 需要 root 的步骤会触发 macOS 弹窗（osascript）
+				onLog: (s) => console.log("[deps]", s),
+				win:win
+			});
+			installed=true;
+		} catch (e) {
+			await dialog.showMessageBox({
+				type: "error",
+				buttons: ["继续"],
+				title: "自动安装失败",
+				message: `安装 ${LABELS[item.key] || item.key} 失败`,
+				detail: (e && e.message) ? String(e.message) : "未知错误"
+			});
+			vo=null;//Force re-checking
+			continue;
+		}
+		
+		// 安装后立即复检该项（并提示结果）
+		setStartupState(`Checking environment...`);
+		vo3 = await checkDeps();
+		const after = vo3.items.find(i => i.key === item.key);
+		if (after && after.ok) {
+			await dialog.showMessageBox({
+				type: "info",
+				buttons: ["继续"],
+				title: "安装完成",
+				message: `${after.label || LABELS[after.key] || after.key} 安装成功 ✅`,
+				detail: after.version ? `版本/状态：${after.version}` : ""
+			});
+		} else {
+			await dialog.showMessageBox({
+				type: "warning",
+				buttons: ["继续"],
+				title: "仍未检测到已安装",
+				message: `${LABELS[item.key] || item.key} 似乎仍未安装成功，可以改用手动安装。`
+			});
+		}
+		vo=vo3;
+		// 回到 while 顶部，继续处理下一项缺失
+	}
+}
+
 
 //---------------------------------------------------------------------------
 startupWindow.startApp=async function(){
@@ -379,7 +581,49 @@ startupWindow.startApp=async function(){
 	});
 	if(isInPackage){
 		this.bundleJson=readJson(this.bundleJsonPath);
-		this.setStartupState("Checking node environment...");
+		this.serverJson=readJson(this.serverJsonPath);
+		
+		//Check network:
+		{
+			setStartupState("Checking network connections...");
+			const r = await checkNetFast({
+				tmo: 1500,
+				onUpdate: partial => {
+					// 可把 partial 推到 UI：追加显示 npm/ghcr/git_smart/DNS 的结果
+					// console.log('update', partial);
+				}
+			});
+			if(r.fast.likely_need_vpn){
+				await dialog.showMessageBox({
+					type: "info",
+					buttons: ["OK"],
+					title: "网络连接问题",
+					message: `当前的网络连接存在问题: ${r.fast.reason}。\n当前AI2App可能会因为网络问题而无法正确的配置/执行，强烈推荐启用'科学上网'后再试。`
+				});
+			}
+		}
+		
+		//Install system dependence:
+		{
+			let initFile,depVo;
+			if(process.platform === "darwin") {//MacOS:
+				initFile = await import("./init_macos.mjs");
+				depVo=await runDepsWizard(initFile.checkDeps,initFile.installDeps,win);
+			}else{
+				//TODO: Add windows and linux support:
+			}
+			if(depVo) {
+				if (this.serverJson) {//Not first time:
+				} else {//First time:
+					let reqPath;
+					setStartupState("Installing python requirements...");
+					reqPath = path.join(this.serverDir, "agents/requirements.txt");
+					await initFile.pipInstall(depVo.python,reqPath);
+				}
+			}else{
+				//TODO: Notify system not ready.
+			}
+		}
 		
 		//Ensure system dirs:
 		{
@@ -389,7 +633,8 @@ startupWindow.startApp=async function(){
 			await fsp.mkdir(path.join(this.userDataDir,"server"), { recursive: true });
 		}
 		
-		//Ensure nvm:
+		//Nvm should already be installed
+		/*
 		if(!await checkNvm()){
 			const result = dialog.showMessageBoxSync(win, {
 				type: 'question',
@@ -404,7 +649,7 @@ startupWindow.startApp=async function(){
 			}
 			this.setStartupState("Installing nvm tool...");
 			await installNvm();
-		}
+		}*/
 
 		this.setStartupState("Check node version...");
 		nodeVersion=this.bundleJson.node;
@@ -425,8 +670,7 @@ startupWindow.startApp=async function(){
 			throw `Can't find node path!`;
 		}
 		
-		this.serverJson=readJson(this.serverJsonPath);
-		if(!this.serverJson){
+		if(!this.serverJson){//This is the first time we install AI2Apps
 			//Unzip server dir:
 			this.setStartupState("Unzip bundle files...");
 			await unzip(this.bundleZipPath,this.serverDir);
